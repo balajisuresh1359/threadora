@@ -8,7 +8,7 @@ const THEME_KEY   = 'threadmark_theme';
 const SETTINGS_KEY = 'threadmark_settings';
 export const DEFAULT_PRIORITY = 1000;
 export const THREAD_CREATION_LIMIT = 300;
-export const THREAD_BYTE_LIMIT = 25000;
+export const THREAD_BYTE_LIMIT = 102400; // 100 KB per thread
 
 // ── Storage helpers ───────────────────────────────────────────
 function load(key) {
