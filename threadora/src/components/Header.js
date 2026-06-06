@@ -67,7 +67,7 @@ export function Header({ onShowShortcuts }) {
               overflow: 'hidden',
             }}
           >
-            <img src="/threadmark-icon2.png" alt="Threadora" style={{ width: 28, height: 28, objectFit: 'cover' }} />
+            <img src="/threadmark-icon.png" alt="Threadora" style={{ width: 28, height: 28, objectFit: 'cover' }} />
           </div>
           <span
             style={{
