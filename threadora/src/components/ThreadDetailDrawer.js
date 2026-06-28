@@ -7,6 +7,7 @@ import { getTrackColor } from '../utils/trackColors';
 import { getRelativeTime } from '../utils/timeUtils';
 import { buildSnapshotCopyText, getSnapshotHandoff } from '../utils/snapshotUtils';
 import { TrackCombobox } from './TrackCombobox';
+import { ReminderPopover } from './ReminderPopover';
 
 function DeleteNoteConfirm({ onConfirm, onCancel }) {
   return (
@@ -330,6 +331,7 @@ export function ThreadDetailDrawer({ thread: initialThread, onClose }) {
   const [noteQuery, setNoteQuery] = useState('');
   const [depQuery, setDepQuery] = useState('');
   const [showDepDropdown, setShowDepDropdown] = useState(false);
+  const [showReminderEditor, setShowReminderEditor] = useState(false);
   const depWrapperRef = useRef(null);
   const allSnapshots = useTaskStore(s => s.snapshots);
   const allThreads = useTaskStore(s => s.threads);
@@ -420,6 +422,26 @@ export function ThreadDetailDrawer({ thread: initialThread, onClose }) {
     onClose();
   };
 
+  const getReminderDueAt = () => {
+    if (thread.reminderAbsoluteAt) return new Date(thread.reminderAbsoluteAt);
+    if (thread.reminderDuration && thread.reminderStartedAt) {
+      return new Date(new Date(thread.reminderStartedAt).getTime() + thread.reminderDuration * 1000);
+    }
+    return null;
+  };
+  const reminderDueAt = getReminderDueAt();
+  const hasReminder = reminderDueAt && !Number.isNaN(reminderDueAt.getTime());
+  const reminderPassed = hasReminder && reminderDueAt <= new Date();
+  const reminderDateLong = hasReminder
+    ? reminderDueAt.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+    : '';
+  const reminderDateShort = hasReminder
+    ? reminderDueAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : '';
+  const reminderTime = hasReminder
+    ? reminderDueAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    : '';
+
   return (
     <AnimatePresence>
       <motion.div
@@ -472,6 +494,33 @@ export function ThreadDetailDrawer({ thread: initialThread, onClose }) {
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Clock size={10} /> Created {getRelativeTime(thread.createdAt)}</span>
                   <span>Updated {getRelativeTime(thread.updatedAt || thread.createdAt)}</span>
                 </div>
+                {hasReminder && (
+                  <div style={{ position: 'relative', marginTop: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowReminderEditor(true)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        padding: 0,
+                        background: 'transparent',
+                        border: 'none',
+                        color: reminderPassed ? 'hsl(var(--destructive) / 0.78)' : 'hsl(var(--text-meta))',
+                        fontSize: 11,
+                        fontFamily: 'var(--app-font), sans-serif',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {reminderPassed
+                        ? `⏰ Reminder passed · ${reminderDateShort} at ${reminderTime}`
+                        : `⏰ Reminds you: ${reminderDateLong} at ${reminderTime}`}
+                    </button>
+                    {showReminderEditor && (
+                      <ReminderPopover thread={thread} onClose={() => setShowReminderEditor(false)} />
+                    )}
+                  </div>
+                )}
               </div>
               <button onClick={onClose} style={{ padding: 6, border: 'none', background: 'transparent', borderRadius: 6 }} className="hover:bg-muted">
                 <X size={15} style={{ color: 'hsl(var(--text-meta))' }} />

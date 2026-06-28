@@ -28,14 +28,22 @@ function parseReminderInput(val) {
   return parseShorthand(val) || chrono.parseDate(val);
 }
 
+function toDateTimeLocalValue(date) {
+  if (!date || Number.isNaN(date.getTime())) return '';
+  const offsetMs = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
 export function ReminderPopover({ thread, onClose }) {
   const setReminder = useTaskStore(s => s.setReminder);
   const clearReminder = useTaskStore(s => s.clearReminder);
   
   const [inputText, setInputText] = useState(thread.reminderAbsoluteText || '');
   const [parsedDate, setParsedDate] = useState(null);
-  const [manualDateTime, setManualDateTime] = useState('');
-  const [showManualFallback, setShowManualFallback] = useState(false);
+  const [manualDateTime, setManualDateTime] = useState(() => (
+    thread.reminderAbsoluteAt ? toDateTimeLocalValue(new Date(thread.reminderAbsoluteAt)) : ''
+  ));
+  const [manualTouched, setManualTouched] = useState(false);
   const [error, setError] = useState('');
   
   const ref = useRef(null);
@@ -48,7 +56,10 @@ export function ReminderPopover({ thread, onClose }) {
 
   useEffect(() => {
     if (thread.reminderAbsoluteAt) {
-      setParsedDate(new Date(thread.reminderAbsoluteAt));
+      const reminderDate = new Date(thread.reminderAbsoluteAt);
+      setParsedDate(reminderDate);
+      setManualDateTime(toDateTimeLocalValue(reminderDate));
+      setManualTouched(false);
     }
   }, [thread.reminderAbsoluteAt]);
 
@@ -57,21 +68,20 @@ export function ReminderPopover({ thread, onClose }) {
     setError('');
     if (!val.trim()) {
       setParsedDate(null);
-      setShowManualFallback(false);
       return;
     }
     const parsed = parseReminderInput(val);
     if (parsed) {
       setParsedDate(parsed);
-      setShowManualFallback(false);
     } else {
       setParsedDate(null);
-      setShowManualFallback(true);
     }
   };
 
   const handleManualDateTimeChange = (val) => {
     setManualDateTime(val);
+    setManualTouched(true);
+    setError('');
     if (val) {
       setParsedDate(new Date(val));
     } else {
@@ -86,7 +96,10 @@ export function ReminderPopover({ thread, onClose }) {
   };
 
   const applyCustom = () => {
-    const currentParsedDate = inputText.trim()
+    const manualDate = manualDateTime ? new Date(manualDateTime) : null;
+    const currentParsedDate = manualTouched && manualDate && !Number.isNaN(manualDate.getTime())
+      ? manualDate
+      : inputText.trim()
       ? parseReminderInput(inputText)
       : parsedDate;
     if (!currentParsedDate) {
@@ -94,7 +107,10 @@ export function ReminderPopover({ thread, onClose }) {
       return;
     }
     const seconds = Math.max(1, Math.round((currentParsedDate.getTime() - Date.now()) / 1000));
-    setReminder(thread.id, seconds, currentParsedDate.toISOString(), inputText || 'Custom manual time');
+    const reminderText = manualTouched
+      ? currentParsedDate.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
+      : inputText || 'Custom manual time';
+    setReminder(thread.id, seconds, currentParsedDate.toISOString(), reminderText);
     onClose();
   };
 
@@ -170,24 +186,22 @@ export function ReminderPopover({ thread, onClose }) {
           </button>
         </div>
 
-        {showManualFallback && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 10, color: 'hsl(var(--text-muted))' }}>Could not parse. Select date/time:</span>
-            <input
-              type="datetime-local"
-              value={manualDateTime}
-              onChange={e => handleManualDateTimeChange(e.target.value)}
-              style={{
-                width: '100%', padding: '5px 8px', fontSize: '12px',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: 'var(--radius-sm)',
-                background: 'hsl(var(--surface-raised))',
-                color: 'hsl(var(--text-title))',
-                outline: 'none',
-              }}
-            />
-          </div>
-        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
+          <span style={{ fontSize: 10, color: 'hsl(var(--text-muted))' }}>Select date/time:</span>
+          <input
+            type="datetime-local"
+            value={manualDateTime}
+            onChange={e => handleManualDateTimeChange(e.target.value)}
+            style={{
+              width: '100%', padding: '5px 8px', fontSize: '12px',
+              border: '1px solid hsl(var(--border))',
+              borderRadius: 'var(--radius-sm)',
+              background: 'hsl(var(--surface-raised))',
+              color: 'hsl(var(--text-title))',
+              outline: 'none',
+            }}
+          />
+        </div>
 
         {parsedDate && (
           <div style={{ fontSize: 11, color: 'hsl(var(--status-active))', fontWeight: 500 }}>

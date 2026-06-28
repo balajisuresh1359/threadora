@@ -5,9 +5,7 @@ import { toast } from 'sonner';
 import {
   DEFAULT_PRIORITY,
   PRIORITY_OPTIONS,
-  formatDuration,
   getPriorityLabel,
-  getReminderRemaining,
   useTaskStore,
 } from '../store/useTaskStore';
 import { getTrackColor } from '../utils/trackColors';
@@ -16,37 +14,80 @@ import { ReminderPopover } from './ReminderPopover';
 
 function NotificationPill({ thread }) {
   const markReminderDue = useTaskStore(state => state.markReminderDue);
-  const [display, setDisplay] = useState('');
+  const [label, setLabel] = useState('');
+  const [overdue, setOverdue] = useState(false);
   const firedRef = useRef(false);
 
   useEffect(() => {
-    if ((!thread.reminderAbsoluteAt && (!thread.reminderDuration || !thread.reminderStartedAt)) || thread.reminderDue) {
-      setDisplay(thread.reminderDue ? 'Ready' : '');
-      return;
-    }
+    const getDueAt = () => {
+      if (thread.reminderAbsoluteAt) return new Date(thread.reminderAbsoluteAt);
+      if (thread.reminderDuration && thread.reminderStartedAt) {
+        return new Date(new Date(thread.reminderStartedAt).getTime() + thread.reminderDuration * 1000);
+      }
+      return null;
+    };
+
+    const formatTime = date => date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    const formatShortDate = date => date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const formatDay = date => date.toLocaleDateString('en-US', { weekday: 'short' });
+    const startOfDay = date => {
+      const d = new Date(date);
+      d.setHours(0, 0, 0, 0);
+      return d;
+    };
 
     const tick = () => {
-      const remaining = getReminderRemaining(thread);
-      setDisplay(formatDuration(remaining));
-      if (remaining === 0 && !firedRef.current) {
-        firedRef.current = true;
-        markReminderDue(thread.id);
-        toast.info(`Reminder ready: "${thread.title}"`);
+      const dueAt = getDueAt();
+      if (!dueAt || Number.isNaN(dueAt.getTime())) {
+        setLabel('');
+        setOverdue(false);
+        return;
+      }
+
+      const now = new Date();
+      if (dueAt <= now) {
+        setLabel('Overdue');
+        setOverdue(true);
+        if (!firedRef.current && !thread.reminderDue) {
+          firedRef.current = true;
+          markReminderDue(thread.id);
+          toast.info(`Reminder ready: "${thread.title}"`);
+        }
+        return;
+      }
+
+      const daysAway = Math.floor((startOfDay(dueAt) - startOfDay(now)) / 86400000);
+      setOverdue(false);
+      if (daysAway === 0) {
+        setLabel(`Today ${formatTime(dueAt)}`);
+      } else if (daysAway === 1) {
+        setLabel(`Tomorrow ${formatTime(dueAt)}`);
+      } else if (daysAway <= 6) {
+        setLabel(`${daysAway}d · ${formatDay(dueAt)}`);
+      } else {
+        setLabel(`${daysAway}d · ${formatShortDate(dueAt)}`);
       }
     };
 
+    if (!thread.reminderAbsoluteAt && (!thread.reminderDuration || !thread.reminderStartedAt)) {
+      setLabel('');
+      setOverdue(false);
+      return;
+    }
+
     tick();
-    const interval = setInterval(tick, 1000);
+    const interval = setInterval(tick, 60000);
     return () => clearInterval(interval);
   }, [thread, markReminderDue]);
 
-  if (!display) return null;
+  if (!label) return null;
 
-  if (thread.reminderDue) {
-    return <span className="reminder-pill reminder-pill-due" title="Reminder ready"><BellRing size={13} strokeWidth={2.2} /></span>;
-  }
-
-  return <span className="reminder-pill"><Bell size={10} strokeWidth={2} />{display}</span>;
+  return (
+    <span className={`reminder-pill ${overdue ? 'reminder-pill-due' : ''}`} title={overdue ? 'Reminder overdue' : 'Reminder scheduled'}>
+      {overdue ? <BellRing size={13} strokeWidth={2.2} /> : <Bell size={10} strokeWidth={2} />}
+      {label}
+    </span>
+  );
 }
 
 function getSnapshotPreview(snapshot) {
