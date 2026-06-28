@@ -230,6 +230,14 @@ button, a, [role="button"], select, label, input[type="checkbox"], input[type="r
   .thread-card-drag-handle svg { width: 12px; height: 12px; }
   .thread-card-content { flex: 1; min-width: 0; }
   .thread-card-level-one { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .thread-card-chips-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
   .thread-card-title {
     flex: 1 1 auto;
     min-width: 0;
@@ -974,9 +982,9 @@ button, a, [role="button"], select, label, input[type="checkbox"], input[type="r
 
   .reminder-quick-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
-    margin-bottom: 10px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 0;
   }
 
   .reminder-form-row {
@@ -1379,4 +1387,94 @@ button, a, [role="button"], select, label, input[type="checkbox"], input[type="r
   .desktop-reminder-pill { display: none; }
   .mobile-reminder-pill { display: block; }
   .mobile-reminder-pill .reminder-pill { align-self: center; }
+}
+
+/* T1 — Mobile Layout Fixes */
+@media (max-width: 640px) {
+  /* Prevent horizontal scroll globally */
+  body, #root { overflow-x: hidden; max-width: 100vw; }
+
+  /* Thread card: level one has title, pin, emoji; nowrap on mobile */
+  .thread-card-level-one {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+  /* Title: stay on one line, ellipsis, take remaining row space */
+  .thread-card-title {
+    flex-grow: 1;
+    min-width: 0;
+    flex-shrink: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 14px !important;
+  }
+  /* Chips row under title: wrap naturally on mobile */
+  .thread-card-chips-row {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    column-gap: 4px;
+    margin-top: 6px;
+  }
+  .track-chip, .meta-chip {
+    flex-shrink: 0;
+  }
+
+
+  /* Drawer full-width on narrow screens */
+  .drawer-panel { width: 100vw !important; max-width: 100vw !important; }
+
+  /* Touch targets: only size-sensitive interactive elements */
+  .btn-primary,
+  .btn-secondary,
+  .card-primary-action,
+  .card-done-icon,
+  .card-icon-action {
+    min-height: 40px !important;
+  }
+
+  /* Filter chips */
+  .filter-chip {
+    min-height: 38px !important;
+    padding: 6px 12px !important;
+  }
+
+  /* Tab bar */
+  .linear-tab {
+    min-height: 40px !important;
+    padding: 8px 14px !important;
+    font-size: 13px !important;
+  }
+
+  /* No horizontal scroll on workspace */
+  .workspace-shell { box-sizing: border-box; }
+  .workspace-filterbar { -webkit-overflow-scrolling: touch; }
+
+  /* Add Thread input full width */
+  .add-thread-panel input[type="text"],
+  .add-thread-panel textarea {
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+}
+
+/* Narrow phone: column layout only at 420px */
+@media (max-width: 420px) {
+  .workspace-heading-row {
+    flex-direction: row;
+    align-items: center !important;
+    flex-wrap: wrap;
+    gap: 8px !important;
+  }
+  .workspace-heading-row h1 { flex: 1; min-width: 0; }
+  .workspace-heading-row .btn-primary {
+    /* icon-only on narrowest screens */
+    font-size: 0 !important;
+    width: 38px !important;
+    padding: 0 !important;
+    min-height: 38px !important;
+  }
+  .workspace-heading-row .btn-primary svg { margin: 0; }
+  .linear-tab { font-size: 12px !important; padding: 6px 12px !important; }
+  .thread-card { padding: 10px 12px; }
 }

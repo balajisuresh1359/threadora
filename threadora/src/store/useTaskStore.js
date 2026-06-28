@@ -56,11 +56,24 @@ function genId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
 }
 function normalizeThread(t) {
-  const normalizedTrack = Array.isArray(t.track || t.type) ? (t.track || t.type)[0] : (t.track || t.type);
+  let tracks = [];
+  if (Array.isArray(t.tracks)) {
+    tracks = t.tracks;
+  } else if (Array.isArray(t.track)) {
+    tracks = t.track;
+  } else if (typeof t.track === 'string' && t.track) {
+    tracks = [t.track];
+  } else if (typeof t.type === 'string' && t.type) {
+    tracks = [t.type];
+  }
+  if (tracks.length === 0) {
+    tracks = ['Other'];
+  }
   return {
     id: t.id,
     title: t.title || '',
-    track: normalizedTrack || 'Other',
+    tracks: tracks,
+    track: tracks[0] || 'Other',
     status: t.status === 'blocked' ? 'stuck' : (t.status || 'active'),
     createdAt: t.createdAt || new Date().toISOString(),
     updatedAt: t.updatedAt || t.createdAt || new Date().toISOString(),
@@ -71,8 +84,12 @@ function normalizeThread(t) {
     emoji: t.emoji || null,
     reminderDuration: t.reminderDuration || null,
     reminderStartedAt: t.reminderStartedAt || null,
+    reminderAbsoluteAt: t.reminderAbsoluteAt || null,
+    reminderAbsoluteText: t.reminderAbsoluteText || null,
     reminderDue: Boolean(t.reminderDue),
     stuckReason: t.stuckReason || null,
+    pinnedSnapshotId: t.pinnedSnapshotId || null,
+    dependsOn: t.dependsOn || [],
   };
 }
 function getThreadBytes(thread, snapshots) {
@@ -84,6 +101,11 @@ function getThreadBytes(thread, snapshots) {
 }
 
 export function getReminderRemaining(thread) {
+  if (thread.reminderAbsoluteAt) {
+    if (thread.reminderDue) return null;
+    const diff = Math.floor((new Date(thread.reminderAbsoluteAt).getTime() - Date.now()) / 1000);
+    return Math.max(0, diff);
+  }
   if (!thread.reminderDuration || !thread.reminderStartedAt || thread.reminderDue) return null;
   const elapsed = Math.floor((Date.now() - new Date(thread.reminderStartedAt).getTime()) / 1000);
   return Math.max(0, thread.reminderDuration - elapsed);
@@ -203,14 +225,16 @@ export const useTaskStore = create((set, get) => ({
     const maxRank = threads.length > 0 ? Math.max(...threads.map(t=>t.priorityRank)) : 0;
     const priorityValue = Number.isFinite(Number(options.priorityValue)) ? Number(options.priorityValue) : DEFAULT_PRIORITY;
     const now = new Date().toISOString();
-    const cleanTrack = Array.isArray(track) ? (track[0] || 'Other') : (track || 'Other');
+    const cleanTracks = Array.isArray(track) ? (track.length > 0 ? track : ['Other']) : (track ? [track] : ['Other']);
     const t = {
-      id: genId(), title: title.trim(), track: cleanTrack, status: 'active',
+      id: genId(), title: title.trim(), tracks: cleanTracks, track: cleanTracks[0], status: 'active',
       createdAt: now, updatedAt: now, priorityRank: maxRank + 1, priorityValue,
       closedAt: null, activeStartedAt: now,
       emoji: options.emoji || getRandomWorkEmoji(),
       reminderDuration: options.reminderDuration || null,
       reminderStartedAt: options.reminderDuration ? now : null,
+      reminderAbsoluteAt: options.reminderAbsoluteAt || null,
+      reminderAbsoluteText: options.reminderAbsoluteText || null,
       reminderDue: false,
       stuckReason: null,
     };
@@ -254,9 +278,22 @@ export const useTaskStore = create((set, get) => ({
     const title = thread ? thread.title : '';
     set(state => {
       const threads = state.threads.map(t =>
-        t.id === id ? { ...t, status: 'closed', closedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), activeStartedAt: null } : t
+        t.id === id
+          ? {
+              ...t,
+              status: 'closed',
+              closedAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              activeStartedAt: null,
+              reminderDuration: null,
+              reminderStartedAt: null,
+              reminderAbsoluteAt: null,
+              reminderAbsoluteText: null,
+              reminderDue: false,
+            }
+          : { ...t, dependsOn: (t.dependsOn || []).filter(depId => depId !== id) }
       );
-      const next = { ...state, threads };
+      const next = { ...state, threads, nudges: (state.nudges || []).filter(n => n.threadId !== id) };
       get()._persist(next); return next;
     });
     if (title) {
@@ -285,8 +322,11 @@ export const useTaskStore = create((set, get) => ({
     set(state => {
       const next = {
         ...state,
-        threads: state.threads.filter(t => t.id !== id),
+        threads: state.threads
+          .filter(t => t.id !== id)
+          .map(t => ({ ...t, dependsOn: (t.dependsOn || []).filter(depId => depId !== id) })),
         snapshots: state.snapshots.filter(s => s.threadId !== id),
+        nudges: (state.nudges || []).filter(n => n.threadId !== id),
       };
       get()._persist(next); return next;
     });
@@ -320,9 +360,9 @@ export const useTaskStore = create((set, get) => ({
   },
 
   updateThreadTrack: (id, track) => {
-    const cleanTrack = Array.isArray(track) ? (track[0] || 'Other') : (track || 'Other');
+    const cleanTracks = Array.isArray(track) ? (track.length > 0 ? track : ['Other']) : (track ? [track] : ['Other']);
     set(state => {
-      const threads = state.threads.map(t => t.id === id ? { ...t, track: cleanTrack, updatedAt: new Date().toISOString() } : t);
+      const threads = state.threads.map(t => t.id === id ? { ...t, tracks: cleanTracks, track: cleanTracks[0], updatedAt: new Date().toISOString() } : t);
       const next = { ...state, threads };
       get()._persist(next); return next;
     });
@@ -335,6 +375,55 @@ export const useTaskStore = create((set, get) => ({
       const next = { ...state, threads };
       get()._persist(next); return next;
     });
+  },
+
+  toggleThreadDependency: (threadId, blockerId) => {
+    if (threadId === blockerId) {
+      return { ok: false, error: 'A thread cannot depend on itself.' };
+    }
+    const state = get();
+    const threads = state.threads;
+    const thread = threads.find(t => t.id === threadId);
+    if (!thread) return { ok: false, error: 'Thread not found.' };
+
+    const isRemoving = (thread.dependsOn || []).includes(blockerId);
+    if (!isRemoving) {
+      const visited = new Set();
+      const queue = [blockerId];
+      let circular = false;
+      while (queue.length > 0) {
+        const currId = queue.shift();
+        if (currId === threadId) {
+          circular = true;
+          break;
+        }
+        if (!visited.has(currId)) {
+          visited.add(currId);
+          const curr = threads.find(t => t.id === currId);
+          if (curr && curr.dependsOn) {
+            queue.push(...curr.dependsOn);
+          }
+        }
+      }
+      if (circular) {
+        return { ok: false, error: 'Circular dependency detected.' };
+      }
+    }
+
+    set(state => {
+      const nextThreads = state.threads.map(t => {
+        if (t.id !== threadId) return t;
+        const currentDeps = t.dependsOn || [];
+        const nextDeps = currentDeps.includes(blockerId)
+          ? currentDeps.filter(id => id !== blockerId)
+          : [...currentDeps, blockerId];
+        return { ...t, dependsOn: nextDeps, updatedAt: new Date().toISOString() };
+      });
+      const next = { ...state, threads: nextThreads };
+      get()._persist(next);
+      return next;
+    });
+    return { ok: true };
   },
 
   reorderThreads: (newIds) => {
@@ -457,6 +546,19 @@ export const useTaskStore = create((set, get) => ({
     });
   },
 
+  // T11: Pin a snapshot on a thread
+  pinSnapshot: (threadId, snapId) => {
+    set(state => {
+      const threads = state.threads.map(t =>
+        t.id === threadId
+          ? { ...t, pinnedSnapshotId: t.pinnedSnapshotId === snapId ? null : snapId, updatedAt: new Date().toISOString() }
+          : t
+      );
+      const next = { ...state, threads };
+      get()._persist(next); return next;
+    });
+  },
+
   getSnapshots: (threadId) => {
     return get().snapshots
       .filter(s => s.threadId === threadId)
@@ -469,16 +571,28 @@ export const useTaskStore = create((set, get) => ({
     return snaps.reduce((l, s) => new Date(s.capturedAt) > new Date(l.capturedAt) ? s : l);
   },
 
-  setReminder: (threadId, durationSeconds) => {
+  setReminder: (threadId, durationSeconds, absoluteAt = null, absoluteText = null) => {
     set(state => {
+      const existing = state.threads.find(t => t.id === threadId);
+      const hadReminder = existing && (existing.reminderDuration || existing.reminderAbsoluteAt);
       const threads = state.threads.map(t => t.id === threadId ? {
         ...t,
         reminderDuration: durationSeconds,
         reminderStartedAt: durationSeconds ? new Date().toISOString() : null,
+        reminderAbsoluteAt: absoluteAt,
+        reminderAbsoluteText: absoluteText,
         reminderDue: false,
         updatedAt: new Date().toISOString(),
       } : t);
-      const next = { ...state, threads };
+      // T15: remove any existing (cleared or live) nudges for this thread so no duplicates
+      const nudges = (state.nudges || []).filter(n => n.threadId !== threadId);
+      if (hadReminder && absoluteAt) {
+        const label = new Date(absoluteAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+        toast.success(`Reminder updated to ${label}`, { duration: 2000 });
+      } else if (hadReminder) {
+        toast.success('Reminder updated', { duration: 2000 });
+      }
+      const next = { ...state, threads, nudges };
       get()._persist(next); return next;
     });
   },
@@ -489,10 +603,12 @@ export const useTaskStore = create((set, get) => ({
         ...t,
         reminderDuration: null,
         reminderStartedAt: null,
+        reminderAbsoluteAt: null,
+        reminderAbsoluteText: null,
         reminderDue: false,
         updatedAt: new Date().toISOString(),
       } : t);
-      const next = { ...state, threads };
+      const next = { ...state, threads, nudges: (state.nudges || []).filter(n => n.threadId !== threadId) };
       get()._persist(next); return next;
     });
   },
@@ -505,10 +621,12 @@ export const useTaskStore = create((set, get) => ({
         reminderDue: true,
         updatedAt: new Date().toISOString(),
       } : t);
+      // T15: replace existing nudge for this thread, don't append a duplicate
+      const existingNudges = (state.nudges || []).filter(n => n.threadId !== threadId);
       const nudges = thread ? [
-        ...(state.nudges || []),
+        ...existingNudges,
         { id: genId(), threadId, title: thread.title, emoji: thread.emoji, kind: 'reminder', message: 'You asked me to remind you', createdAt: new Date().toISOString(), cleared: false },
-      ] : (state.nudges || []);
+      ] : existingNudges;
       const next = { ...state, threads, nudges };
       get()._persist(next); return next;
     });
@@ -556,21 +674,36 @@ export const useTaskStore = create((set, get) => ({
   // Removed theme toggling since it's dark mode only
 
   // ── Import / Export ────────────────────────────────────────
-  importData: (jsonData) => {
+  importData: (data) => {
     try {
-      const parsed = JSON.parse(jsonData);
-      if (parsed.threads && parsed.snapshots) {
-        set(state => {
-          const next = { ...state, threads: parsed.threads.map(normalizeThread), snapshots: parsed.snapshots };
-          get()._persist(next);
-          return next;
-        });
-        return true;
+      let parsed = data;
+      if (typeof data === 'string') {
+        parsed = JSON.parse(data);
       }
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error('Data must be a JSON object');
+      }
+      const migrated = migrateData(parsed);
+      if (!migrated || !Array.isArray(migrated.threads)) {
+        throw new Error('Missing threads or tasks list');
+      }
+      set(state => {
+        const next = {
+          ...state,
+          threads: migrated.threads,
+          snapshots: migrated.snapshots || [],
+          nudges: parsed.nudges || []
+        };
+        get()._persist(next);
+        return next;
+      });
+      toast.success('Data imported successfully');
+      return true;
     } catch (e) {
-      console.error("Failed to import JSON", e);
+      console.error('Failed to import JSON:', e);
+      toast.error(`Import failed: ${e.message}`);
+      return false;
     }
-    return false;
   },
 
   // ── Export ─────────────────────────────────────────────────

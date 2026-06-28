@@ -12,6 +12,8 @@ import {
 } from './ui/command';
 import { getTrackColor } from '../utils/trackColors';
 
+const MAX_TRACKS = 4;
+
 export function TrackCombobox({
   tracks,
   value,
@@ -26,6 +28,8 @@ export function TrackCombobox({
 
   const trimmedQuery = query.trim();
   const hasExactMatch = tracks.some(track => track.toLowerCase() === trimmedQuery.toLowerCase());
+  const arrValue = Array.isArray(value) ? value : (value ? [value] : []);
+  const atLimit = arrValue.length >= MAX_TRACKS;
 
   const handleSelect = (nextValue) => {
     if (nextValue === null) {
@@ -39,6 +43,7 @@ export function TrackCombobox({
     if (current.includes(nextValue)) {
       nextArr = current.filter(v => v !== nextValue);
     } else {
+      if (current.length >= MAX_TRACKS) return; // cap at 4
       nextArr = [...current, nextValue];
     }
     onChange(nextArr);
@@ -54,8 +59,7 @@ export function TrackCombobox({
     setQuery('');
   };
 
-  const showCreate = Boolean(onCreateTrack && trimmedQuery && !hasExactMatch);
-  const arrValue = Array.isArray(value) ? value : (value ? [value] : []);
+  const showCreate = Boolean(onCreateTrack && trimmedQuery && !hasExactMatch && !atLimit);
   const displayLabel = arrValue.length > 0 ? arrValue.join(', ') : allLabel || placeholder;
   const displayColor = arrValue.length === 1 ? getTrackColor(arrValue[0]) : 'hsl(var(--text-meta))';
   const controlWidth = typeof width === 'number' ? `min(${width}px, calc(100vw - 32px))` : width;
@@ -110,7 +114,14 @@ export function TrackCombobox({
               {displayLabel}
             </span>
           </span>
-          <ChevronDown size={14} style={{ color: 'hsl(var(--text-meta))', flexShrink: 0 }} />
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {onCreateTrack && arrValue.length > 0 && (
+              <span style={{ fontSize: 10, color: atLimit ? 'hsl(var(--destructive))' : 'hsl(var(--text-muted))', fontWeight: 600 }}>
+                {arrValue.length}/{MAX_TRACKS}
+              </span>
+            )}
+            <ChevronDown size={14} style={{ color: 'hsl(var(--text-meta))', flexShrink: 0 }} />
+          </span>
         </button>
       </PopoverTrigger>
 
@@ -145,21 +156,31 @@ export function TrackCombobox({
             )}
 
             <CommandGroup heading="Tracks">
-              {tracks.map(track => (
-                <CommandItem key={track} value={track} onSelect={() => handleSelect(track)}>
-                  <span
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      background: getTrackColor(track),
-                      flexShrink: 0,
-                    }}
-                  />
-                  <span style={{ flex: 1 }}>{track}</span>
-                  {arrValue.includes(track) && <Check size={14} style={{ color: 'hsl(var(--primary))' }} />}
-                </CommandItem>
-              ))}
+              {tracks.map(track => {
+                const isSelected = arrValue.includes(track);
+                const isDisabled = atLimit && !isSelected;
+                return (
+                  <CommandItem
+                    key={track}
+                    value={track}
+                    onSelect={() => !isDisabled && handleSelect(track)}
+                    style={{ opacity: isDisabled ? 0.4 : 1, cursor: isDisabled ? 'not-allowed' : 'pointer' }}
+                  >
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        background: getTrackColor(track),
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span style={{ flex: 1 }}>{track}</span>
+                    {isSelected && <Check size={14} style={{ color: 'hsl(var(--primary))' }} />}
+                    {isDisabled && <span style={{ fontSize: 10, color: 'hsl(var(--text-muted))' }}>limit</span>}
+                  </CommandItem>
+                );
+              })}
             </CommandGroup>
 
             {showCreate && (

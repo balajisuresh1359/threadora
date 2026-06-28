@@ -87,11 +87,12 @@ function ThreadMarkApp() {
       return;
     }
 
-    // 1-4 - switch tabs
+    // 1-5 - switch tabs
     if (e.key === '1') { window.dispatchEvent(new CustomEvent('threadmark:switch-tab', { detail: 'all' })); return; }
     if (e.key === '2') { window.dispatchEvent(new CustomEvent('threadmark:switch-tab', { detail: 'active' })); return; }
     if (e.key === '3') { window.dispatchEvent(new CustomEvent('threadmark:switch-tab', { detail: 'parked' })); return; }
     if (e.key === '4') { window.dispatchEvent(new CustomEvent('threadmark:switch-tab', { detail: 'nudges' })); return; }
+    if (e.key === '5') { window.dispatchEvent(new CustomEvent('threadmark:switch-tab', { detail: 'insights' })); return; }
 
     // J / K - navigate
     if (e.key === 'j' || e.key === 'ArrowDown') {
@@ -132,6 +133,12 @@ function ThreadMarkApp() {
     window.addEventListener('keydown', handleGlobalKey);
     return () => window.removeEventListener('keydown', handleGlobalKey);
   }, [handleGlobalKey]);
+
+  useEffect(() => {
+    const handleShowShortcuts = () => setShowShortcuts(true);
+    window.addEventListener('threadmark:show-shortcuts', handleShowShortcuts);
+    return () => window.removeEventListener('threadmark:show-shortcuts', handleShowShortcuts);
+  }, []);
 
   // When track drawer navigates to a thread, highlight it briefly
   const handleHighlightThread = (id) => {
@@ -209,16 +216,8 @@ function ThreadMarkApp() {
         />
       )}
 
-      {/* Version label */}
-      <button
-        type="button"
-        className="shortcut-help-button"
-        onClick={() => setShowShortcuts(true)}
-        aria-label="Show shortcuts"
-        title="Shortcuts"
-      >
-        ?
-      </button>
+      
+
 
       {showShortcuts && (
         <div className="shortcut-help-overlay" onClick={() => setShowShortcuts(false)}>
@@ -230,7 +229,7 @@ function ThreadMarkApp() {
             <div className="shortcut-help-grid">
               <span><kbd className="kbd">N</kbd></span><p>New thread</p>
               <span><kbd className="kbd">/</kbd></span><p>Search</p>
-              <span><kbd className="kbd">1</kbd> <kbd className="kbd">2</kbd> <kbd className="kbd">3</kbd> <kbd className="kbd">4</kbd></span><p>Switch tabs</p>
+              <span><kbd className="kbd">1</kbd> <kbd className="kbd">2</kbd> <kbd className="kbd">3</kbd> <kbd className="kbd">4</kbd> <kbd className="kbd">5</kbd></span><p>Switch tabs (5 = Insights)</p>
               <span><kbd className="kbd">J</kbd> <kbd className="kbd">K</kbd></span><p>Move focus</p>
               <span><kbd className="kbd">R</kbd></span><p>Resume focused thread</p>
               <span><kbd className="kbd">B</kbd></span><p>Park focused thread</p>

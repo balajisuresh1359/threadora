@@ -147,12 +147,7 @@ export function Header() {
       if (!file) return;
       const reader = new FileReader();
       reader.onload = (evt) => {
-        try {
-          const raw = JSON.parse(evt.target.result);
-          importData(raw);
-        } catch (err) {
-          console.error(err);
-        }
+        importData(evt.target.result);
       };
       reader.readAsText(file);
     };
@@ -307,6 +302,27 @@ export function Header() {
                 </button>
               </TooltipTrigger>
               <TooltipContent><p>Export JSON</p></TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent('threadmark:show-shortcuts'))}
+                  style={{
+                    width: 32, height: 32, borderRadius: 8,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    border: 'none', background: 'transparent',
+                    color: 'hsl(var(--text-meta))',
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    fontWeight: 'bold',
+                  }}
+                  className="hover:bg-muted hover:text-foreground"
+                >
+                  ?
+                </button>
+              </TooltipTrigger>
+              <TooltipContent><p>Shortcuts</p></TooltipContent>
             </Tooltip>
 
           </TooltipProvider>

@@ -20,7 +20,7 @@ function NotificationPill({ thread }) {
   const firedRef = useRef(false);
 
   useEffect(() => {
-    if (!thread.reminderDuration || !thread.reminderStartedAt || thread.reminderDue) {
+    if ((!thread.reminderAbsoluteAt && (!thread.reminderDuration || !thread.reminderStartedAt)) || thread.reminderDue) {
       setDisplay(thread.reminderDue ? 'Ready' : '');
       return;
     }
@@ -63,21 +63,35 @@ function getCompactAge(dateValue) {
   return `${Math.floor(hours / 24)}d`;
 }
 
-export function ThreadCard({ thread, onSnapshot, isFocused, onOpenTrackDrawer, onOpenDetailDrawer, activeTab }) {
+export function ThreadCard({ thread, onSnapshot, isFocused, onOpenTrackDrawer, onOpenDetailDrawer, onNavigateToThread, activeTab }) {
   const snapshots = useTaskStore(state => state.snapshots);
   const updateThreadStatus = useTaskStore(state => state.updateThreadStatus);
   const closeThread = useTaskStore(state => state.closeThread);
   const updateThreadEmoji = useTaskStore(state => state.updateThreadEmoji);
   const updateThreadPriority = useTaskStore(state => state.updateThreadPriority);
   const togglePinThread = useTaskStore(state => state.togglePinThread);
+  const allThreads = useTaskStore(state => state.threads);
+  const activeBlockers = allThreads.filter(t => (thread.dependsOn || []).includes(t.id) && t.status !== 'closed');
   const [showNotification, setShowNotification] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
+  const [showBlockerPopover, setShowBlockerPopover] = useState(false);
+  const blockerPopoverRef = useRef(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (blockerPopoverRef.current && !blockerPopoverRef.current.contains(e.target)) {
+        setShowBlockerPopover(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
 
   const latestSnapshot = snapshots
     .filter(snapshot => snapshot.threadId === thread.id)
     .sort((first, second) => new Date(second.capturedAt) - new Date(first.capturedAt))[0];
   const snapshotPreview = getSnapshotPreview(latestSnapshot);
-  const trackColor = getTrackColor(thread.track);
+  const trackColor = getTrackColor(thread.tracks?.[0] || thread.track);
   const parked = thread.status === 'paused' || thread.status === 'stuck' || thread.status === 'delayed';
   const parkedLabel = thread.status === 'stuck' ? 'Stuck' : 'Later';
   const cardStatusClass = thread.status === 'stuck'
@@ -88,14 +102,13 @@ export function ThreadCard({ thread, onSnapshot, isFocused, onOpenTrackDrawer, o
 
   const style = {
     position: 'relative',
+    borderLeft: `4px solid ${trackColor}`,
     zIndex: showNotification || showEmoji ? 80 : undefined,
   };
 
   const openDetails = () => onOpenDetailDrawer?.(thread);
-  const handleCardKeyDown = event => {
-    if (event.target !== event.currentTarget) return;
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
+  const handleCardKeyDown = (event) => {
+    if (event.key === 'Enter') {
       openDetails();
     }
   };
@@ -114,28 +127,20 @@ export function ThreadCard({ thread, onSnapshot, isFocused, onOpenTrackDrawer, o
       <div className={`thread-card ${cardStatusClass}`} role="button" tabIndex={0} onClick={openDetails} onKeyDown={handleCardKeyDown}>
         <div className="thread-card-main">
           <div className="thread-card-content">
-            <div className="thread-card-level-one">
+            {/* ROW A: pin + emoji + title only */}
+            <div className="thread-card-level-one" style={{ flexWrap: 'nowrap' }}>
               {activeTab !== 'nudges' && (
                 <button
                   type="button"
                   className={`card-pin-button ${thread.isPinned ? 'pinned' : ''}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    togglePinThread(thread.id);
-                  }}
+                  onClick={(e) => { e.stopPropagation(); togglePinThread(thread.id); }}
                   title={thread.isPinned ? "Unpin thread" : "Pin thread"}
                   style={{
-                    background: 'none',
-                    border: 'none',
-                    padding: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
+                    background: 'none', border: 'none', padding: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
                     color: thread.isPinned ? 'hsl(var(--status-active))' : 'hsl(var(--text-muted))',
                     opacity: thread.isPinned ? 1 : 0.35,
-                    cursor: 'pointer',
-                    marginRight: 6,
-                    flexShrink: 0,
+                    cursor: 'pointer', marginRight: 4, flexShrink: 0,
                     transition: 'opacity 0.15s, color 0.15s',
                   }}
                 >
@@ -150,18 +155,42 @@ export function ThreadCard({ thread, onSnapshot, isFocused, onOpenTrackDrawer, o
               </div>
 
               <h2 className="thread-card-title" title={thread.title}>{thread.title}</h2>
+              {thread.pinnedSnapshotId && (
+                <span title="Has a pinned snapshot" style={{ fontSize: 11, flexShrink: 0 }}>📌</span>
+              )}
+            </div>
 
-              <button
-                type="button"
-                className="meta-chip track-chip"
-                style={{ borderColor: trackColor, color: trackColor }}
-                onClick={event => {
-                  event.stopPropagation();
-                  onOpenTrackDrawer?.(thread.track);
-                }}
-              >
-                {thread.track}
-              </button>
+            {/* ROW B: chips + action button */}
+            <div className="thread-card-chips-row">
+              {/* Track chips capped at 3 */}
+              {(() => {
+                const allTracks = thread.tracks || [thread.track || 'Other'];
+                const visible = allTracks.slice(0, 3);
+                const extra = allTracks.length - 3;
+                return (
+                  <>
+                    {visible.map(tr => {
+                      const trColor = getTrackColor(tr);
+                      return (
+                        <button
+                          key={tr}
+                          type="button"
+                          className="meta-chip track-chip"
+                          style={{ borderColor: trColor, color: trColor, flexShrink: 0 }}
+                          onClick={event => { event.stopPropagation(); onOpenTrackDrawer?.(tr); }}
+                        >
+                          {tr}
+                        </button>
+                      );
+                    })}
+                    {extra > 0 && (
+                      <span className="meta-chip" style={{ flexShrink: 0, color: 'hsl(var(--text-muted))', borderColor: 'hsl(var(--border))' }}>
+                        +{extra}
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
 
               {parked && (
                 <span className={`parked-reason-label ${thread.status === 'stuck' ? 'parked-reason-stuck' : ''}`}>
@@ -169,16 +198,83 @@ export function ThreadCard({ thread, onSnapshot, isFocused, onOpenTrackDrawer, o
                 </span>
               )}
 
-              {parked ? (
-                <button type="button" className="card-primary-action card-primary-resume" onClick={event => { event.stopPropagation(); updateThreadStatus(thread.id, 'active'); }}>
-                  <Play size={13} /> Resume
-                </button>
-              ) : (
-                <button type="button" className="card-primary-action" onClick={event => { event.stopPropagation(); onSnapshot?.(thread); }}>
-                  <Camera size={13} /> Snapshot
-                </button>
+              {activeBlockers.length > 0 && (
+                <div style={{ position: 'relative', display: 'inline-flex' }} ref={blockerPopoverRef}>
+                  <button
+                    type="button"
+                    className="meta-chip"
+                    style={{
+                      background: 'hsl(var(--status-stuck-bg) / 0.4)',
+                      color: 'hsl(var(--status-stuck))',
+                      borderColor: 'hsl(var(--status-stuck) / 0.3)',
+                      fontSize: 11, cursor: 'pointer',
+                      display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0,
+                      maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}
+                    onClick={event => { event.stopPropagation(); setShowBlockerPopover(p => !p); }}
+                    title="Click to see all blockers"
+                  >
+                    🚫 {activeBlockers[0].title.length > 14 ? activeBlockers[0].title.slice(0, 14) + '…' : activeBlockers[0].title}
+                    {activeBlockers.length > 1 && ` +${activeBlockers.length - 1}`}
+                  </button>
+                  {showBlockerPopover && (
+                    <div
+                      style={{
+                        position: 'absolute', bottom: '110%', left: 0, zIndex: 200,
+                        background: 'hsl(var(--surface-raised))',
+                        border: '1px solid hsl(var(--border-strong))',
+                        borderRadius: 'var(--radius)',
+                        padding: '8px 10px',
+                        minWidth: 180, maxWidth: 260,
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+                        display: 'flex', flexDirection: 'column', gap: 6,
+                      }}
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'hsl(var(--text-muted))', marginBottom: 2 }}>Blocked by</div>
+                      {activeBlockers.map(blocker => (
+                        <button
+                          key={blocker.id}
+                          type="button"
+                          style={{
+                            background: 'none', border: 'none', padding: '2px 0',
+                            fontSize: 12, fontWeight: 500,
+                            color: 'hsl(var(--text-title))',
+                            cursor: 'pointer', textAlign: 'left',
+                            display: 'flex', alignItems: 'center', gap: 5,
+                          }}
+                          onClick={() => {
+                            setShowBlockerPopover(false);
+                            if (onNavigateToThread) {
+                              onNavigateToThread(blocker);
+                            } else {
+                              onOpenDetailDrawer?.(blocker);
+                            }
+                          }}
+                        >
+                          <span style={{ color: 'hsl(var(--status-stuck))' }}>🚫</span>
+                          {blocker.emoji || ''} {blocker.title.length > 36 ? blocker.title.slice(0, 36) + '…' : blocker.title}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
+
+              {/* Primary action pushed to right */}
+              <div style={{ marginLeft: 'auto', flexShrink: 0 }}>
+                {parked ? (
+                  <button type="button" className="card-primary-action card-primary-resume" onClick={event => { event.stopPropagation(); updateThreadStatus(thread.id, 'active'); }}>
+                    <Play size={13} /> Resume
+                  </button>
+                ) : (
+                  <button type="button" className="card-primary-action" onClick={event => { event.stopPropagation(); onSnapshot?.(thread); }}>
+                    <Camera size={13} /> Snapshot
+                  </button>
+                )}
+              </div>
             </div>
+
 
             <div className="thread-card-level-two">
               <div className="thread-card-note-preview">

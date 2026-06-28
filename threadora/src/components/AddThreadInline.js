@@ -4,18 +4,33 @@ import { useTaskStore, DEFAULT_PRIORITY, PRIORITY_OPTIONS } from '../store/useTa
 import { TrackCombobox } from './TrackCombobox';
 import { EmojiPicker } from './EmojiPicker';
 import { getRandomWorkEmoji } from '../utils/emojis';
+import * as chrono from 'chrono-node';
+
+// Parse shorthand like "1m", "2h", "3d", "1w" into a Date
+function parseShorthand(val) {
+  const m = val.trim().match(/^(\d+(?:\.\d+)?)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|week|weeks)$/i);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  const u = m[2][0].toLowerCase();
+  const secs = u === 'm' ? n * 60 : u === 'h' ? n * 3600 : u === 'd' ? n * 86400 : u === 'w' ? n * 7 * 86400 : null;
+  if (!secs) return null;
+  return new Date(Date.now() + secs * 1000);
+}
+
 
 export function AddThreadInline({ onClose }) {
   const addThread     = useTaskStore(s => s.addThread);
   const customTracks  = useTaskStore(s => s.customTracks);
   const addCustomTrack = useTaskStore(s => s.addCustomTrack);
   const [title, setTitle]           = useState('');
-  const [track, setTrack]           = useState('Other');
+  const [tracks, setTracks]         = useState(['Other']);
   const [emoji, setEmoji]           = useState(getRandomWorkEmoji());
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [priority, setPriority]     = useState(String(DEFAULT_PRIORITY));
-  const [reminderValue, setReminderValue] = useState('');
-  const [reminderScale, setReminderScale] = useState('hours');
+  const [reminderText, setReminderText] = useState('');
+  const [reminderAbsoluteAt, setReminderAbsoluteAt] = useState(null);
+  const [manualDateTime, setManualDateTime] = useState('');
+  const [showManualFallback, setShowManualFallback] = useState(false);
   const [error, setError] = useState('');
   const [touched, setTouched] = useState(false);
   const inputRef = useRef(null);
@@ -24,11 +39,10 @@ export function AddThreadInline({ onClose }) {
 
   const hasDraft = touched || Boolean(
     title.trim() ||
-    track !== 'Other' ||
+    (tracks.length !== 1 || tracks[0] !== 'Other') ||
     emoji !== initialEmojiRef.current ||
     priority !== String(DEFAULT_PRIORITY) ||
-    reminderValue.trim() ||
-    reminderScale !== 'hours'
+    reminderText.trim()
   );
 
   const handlePanelBlur = event => {
@@ -41,15 +55,37 @@ export function AddThreadInline({ onClose }) {
     }, 0);
   };
 
-  const parseDuration = (value, scale, label) => {
-    const trimmed = value.trim();
-    if (!trimmed) return { ok: true, seconds: null };
-    if (!/^\d+$/.test(trimmed)) return { ok: false, error: `${label} must be a whole number.` };
-    const num = Number(trimmed);
-    const max = scale === 'days' ? 1000 : 10000;
-    if (num < 1 || num > max) return { ok: false, error: `${label} limit is ${max} ${scale}.` };
-    const multiplier = scale === 'days' ? 86400 : scale === 'minutes' ? 60 : 3600;
-    return { ok: true, seconds: num * multiplier };
+  const handleReminderChange = (val) => {
+    setReminderText(val);
+    setError('');
+    if (!val.trim()) {
+      setReminderAbsoluteAt(null);
+      setShowManualFallback(false);
+      return;
+    }
+    const shorthand = parseShorthand(val);
+    if (shorthand) {
+      setReminderAbsoluteAt(shorthand);
+      setShowManualFallback(false);
+      return;
+    }
+    const parsed = chrono.parseDate(val);
+    if (parsed) {
+      setReminderAbsoluteAt(parsed);
+      setShowManualFallback(false);
+    } else {
+      setReminderAbsoluteAt(null);
+      setShowManualFallback(true);
+    }
+  };
+
+  const handleManualDateTimeChange = (val) => {
+    setManualDateTime(val);
+    if (val) {
+      setReminderAbsoluteAt(new Date(val));
+    } else {
+      setReminderAbsoluteAt(null);
+    }
   };
 
   const handleSubmit = () => {
@@ -58,12 +94,18 @@ export function AddThreadInline({ onClose }) {
       setError('Priority must be a whole number.');
       return;
     }
-    const reminder = parseDuration(reminderValue, reminderScale, 'Reminder');
-    if (!reminder.ok) { setError(reminder.error); return; }
-    const result = addThread(title, track, {
+    let seconds = null;
+    let absoluteAtStr = null;
+    if (reminderAbsoluteAt) {
+      seconds = Math.max(0, Math.round((reminderAbsoluteAt.getTime() - Date.now()) / 1000));
+      absoluteAtStr = reminderAbsoluteAt.toISOString();
+    }
+    const result = addThread(title, tracks, {
       emoji,
       priorityValue: Number(priority),
-      reminderDuration: reminder.seconds,
+      reminderDuration: seconds,
+      reminderAbsoluteAt: absoluteAtStr,
+      reminderAbsoluteText: reminderText || null,
     });
     if (result?.ok === false) {
       setError(result.error);
@@ -75,7 +117,7 @@ export function AddThreadInline({ onClose }) {
   const handleAddTrack = (name) => {
     if (!name.trim()) return;
     addCustomTrack(name);
-    setTrack(name.trim());
+    setTracks(prev => [...prev.filter(t => t !== 'Other'), name.trim()]);
   };
 
   return (
@@ -120,10 +162,10 @@ export function AddThreadInline({ onClose }) {
           <span style={{ fontSize: 11, color: 'hsl(var(--text-meta))' }}>Track</span>
           <TrackCombobox
             tracks={customTracks}
-            value={track}
-            onChange={(value) => { setTouched(true); setTrack(Array.isArray(value) ? (value[value.length - 1] || 'Other') : value); }}
+            value={tracks}
+            onChange={(value) => { setTouched(true); setTracks(value); }}
             onCreateTrack={handleAddTrack}
-            placeholder="Choose a track"
+            placeholder="Choose tracks"
             width={220}
           />
           <label className="add-thread-priority">
@@ -136,29 +178,45 @@ export function AddThreadInline({ onClose }) {
           </label>
         </div>
 
-        <div className="add-thread-reminder-row">
+        <div className="add-thread-reminder-row" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, color: 'hsl(var(--text-body))', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 600 }}>
-              <Bell size={13} /> Remind me in
+              <Bell size={13} /> Remind me
             </span>
             <input
-              className="no-spinner"
-              inputMode="numeric"
-              value={reminderValue}
-              onChange={e => { setTouched(true); setReminderValue(e.target.value); }}
-              placeholder="Optional"
-              style={{ width: 76, padding: '5px 9px', fontSize: 12, color: 'hsl(var(--text-title))', border: '1px solid hsl(var(--border-strong))', borderRadius: 'var(--radius-sm)', background: 'hsl(var(--surface))', outline: 'none' }}
+              value={reminderText}
+              onChange={e => { setTouched(true); handleReminderChange(e.target.value); }}
+              placeholder="e.g. 2h, 1d, tomorrow 8pm"
+              style={{ flex: 1, minWidth: 160, padding: '5px 9px', fontSize: 12, color: 'hsl(var(--text-title))', border: '1px solid hsl(var(--border-strong))', borderRadius: 'var(--radius-sm)', background: 'hsl(var(--surface))', outline: 'none' }}
               onKeyDown={e => {
                 if (e.key === 'Enter') handleSubmit();
                 if (e.key === 'Escape') onClose && onClose();
               }}
             />
-            <select value={reminderScale} onChange={e => { setTouched(true); setReminderScale(e.target.value); }} className="compact-select">
-              <option value="minutes">mins</option>
-              <option value="hours">hrs</option>
-              <option value="days">days</option>
-            </select>
           </div>
+          {showManualFallback && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginLeft: 21 }}>
+              <span style={{ fontSize: 10, color: 'hsl(var(--text-muted))' }}>Could not parse. Select date/time:</span>
+              <input
+                type="datetime-local"
+                value={manualDateTime}
+                onChange={e => { setTouched(true); handleManualDateTimeChange(e.target.value); }}
+                style={{
+                  padding: '5px 8px', fontSize: '12px',
+                  border: '1px solid hsl(var(--border-strong))',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'hsl(var(--surface))',
+                  color: 'hsl(var(--text-title))',
+                  outline: 'none',
+                }}
+              />
+            </div>
+          )}
+          {reminderAbsoluteAt && (
+            <div style={{ fontSize: 11, color: 'hsl(var(--status-active))', fontWeight: 500, marginLeft: 21 }}>
+              Reminds you: {reminderAbsoluteAt.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+            </div>
+          )}
         </div>
 
         {error && <p style={{ margin: 0, fontSize: 12, color: 'hsl(var(--destructive))' }}>{error}</p>}
