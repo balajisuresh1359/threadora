@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Zap, CheckSquare, Paperclip } from 'lucide-react';
 import { useTaskStore } from '../store/useTaskStore';
+import { ParkReminderPrompt, hasActiveReminder } from './ParkReminderPrompt';
 
 export function SnapshotModal({ thread, onClose }) {
   const addSnapshot = useTaskStore(s => s.addSnapshot);
@@ -12,6 +13,7 @@ export function SnapshotModal({ thread, onClose }) {
   const [saving,     setSaving]     = useState(false);
   const [usePrevious, setUsePrevious] = useState(false);
   const [fileAttachment, setFileAttachment] = useState(null);
+  const [pendingParkStatus, setPendingParkStatus] = useState(null);
   const f1 = useRef(null);
   const previousSnap = getLatestSnapshot(thread.id);
 
@@ -29,7 +31,7 @@ export function SnapshotModal({ thread, onClose }) {
   const hasTyped = lastAction.trim().length > 0 || nextOrBlocker.trim().length > 0;
   const canSave = usePrevious || lastAction.trim().length > 0;
 
-  const handleSave = (targetStatus) => {
+  const performSave = (targetStatus) => {
     if (!canSave || saving) return;
     setSaving(true);
     setTimeout(() => {
@@ -41,6 +43,15 @@ export function SnapshotModal({ thread, onClose }) {
       setSaving(false);
       onClose();
     }, 100);
+  };
+
+  const handleSave = (targetStatus) => {
+    if (!canSave || saving) return;
+    if (hasActiveReminder(thread)) {
+      performSave(targetStatus);
+      return;
+    }
+    setPendingParkStatus(targetStatus);
   };
 
   const handleKey = (e) => {
@@ -178,32 +189,41 @@ export function SnapshotModal({ thread, onClose }) {
           {/* Footer */}
           <div
             style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              display: 'flex', flexDirection: 'column', gap: 10,
               padding: '14px 24px',
               borderTop: '1px solid hsl(var(--border))',
             }}
           >
-            <span style={{ fontSize: 11, color: 'hsl(var(--text-meta))' }}>
-              <span className="kbd">Cmd</span> <span className="kbd">Enter</span> to save
-            </span>
-            <div className="snapshot-footer-actions" style={{ display: 'flex', gap: 8 }}>
-              <button onClick={onClose} className="btn-ghost">Cancel</button>
-              <button
-                onClick={() => handleSave('stuck')}
-                disabled={!canSave || saving}
-                className="btn-outline-amber"
-                style={{ height: 32, fontSize: 13, padding: '0 18px', opacity: canSave ? 1 : 0.42 }}
-              >
-                Stuck
-              </button>
-              <button
-                onClick={() => handleSave('paused')}
-                disabled={!canSave || saving}
-                className="btn-primary"
-                style={{ height: 32, fontSize: 13, padding: '0 18px', opacity: canSave ? 1 : 0.42 }}
-              >
-                {saving ? 'Saving…' : 'Park for Later'}
-              </button>
+            {pendingParkStatus && (
+              <ParkReminderPrompt
+                thread={thread}
+                onSet={() => performSave(pendingParkStatus)}
+                onSkip={() => performSave(pendingParkStatus)}
+              />
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <span style={{ fontSize: 11, color: 'hsl(var(--text-meta))' }}>
+                <span className="kbd">Cmd</span> <span className="kbd">Enter</span> to save
+              </span>
+              <div className="snapshot-footer-actions" style={{ display: 'flex', gap: 8 }}>
+                <button onClick={onClose} className="btn-ghost">Cancel</button>
+                <button
+                  onClick={() => handleSave('stuck')}
+                  disabled={!canSave || saving}
+                  className="btn-outline-amber"
+                  style={{ height: 32, fontSize: 13, padding: '0 18px', opacity: canSave ? 1 : 0.42 }}
+                >
+                  Stuck
+                </button>
+                <button
+                  onClick={() => handleSave('paused')}
+                  disabled={!canSave || saving}
+                  className="btn-primary"
+                  style={{ height: 32, fontSize: 13, padding: '0 18px', opacity: canSave ? 1 : 0.42 }}
+                >
+                  {saving ? 'Saving…' : 'Park for Later'}
+                </button>
+              </div>
             </div>
           </div>
         </motion.div>

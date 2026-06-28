@@ -8,6 +8,7 @@ import { getRelativeTime } from '../utils/timeUtils';
 import { buildSnapshotCopyText, getSnapshotHandoff } from '../utils/snapshotUtils';
 import { TrackCombobox } from './TrackCombobox';
 import { ReminderPopover } from './ReminderPopover';
+import { ParkReminderPrompt, hasActiveReminder } from './ParkReminderPrompt';
 
 function DeleteNoteConfirm({ onConfirm, onCancel }) {
   return (
@@ -332,6 +333,7 @@ export function ThreadDetailDrawer({ thread: initialThread, onClose }) {
   const [depQuery, setDepQuery] = useState('');
   const [showDepDropdown, setShowDepDropdown] = useState(false);
   const [showReminderEditor, setShowReminderEditor] = useState(false);
+  const [pendingParkStatus, setPendingParkStatus] = useState(null);
   const depWrapperRef = useRef(null);
   const allSnapshots = useTaskStore(s => s.snapshots);
   const allThreads = useTaskStore(s => s.threads);
@@ -408,13 +410,24 @@ export function ThreadDetailDrawer({ thread: initialThread, onClose }) {
     }
   };
 
-  const handleStuck = () => {
-    updateThreadStatus(thread.id, 'stuck');
+  const completePark = (status) => {
+    updateThreadStatus(thread.id, status);
     onClose();
   };
+
+  const requestPark = (status) => {
+    if (hasActiveReminder(thread)) {
+      completePark(status);
+      return;
+    }
+    setPendingParkStatus(status);
+  };
+
+  const handleStuck = () => {
+    requestPark('stuck');
+  };
   const handlePause = () => {
-    updateThreadStatus(thread.id, 'paused');
-    onClose();
+    requestPark('paused');
   };
 
   const handleClose = () => {
@@ -758,6 +771,13 @@ export function ThreadDetailDrawer({ thread: initialThread, onClose }) {
                 </div>
               )}
             </div>
+            {pendingParkStatus && (
+              <ParkReminderPrompt
+                thread={thread}
+                onSet={() => completePark(pendingParkStatus)}
+                onSkip={() => completePark(pendingParkStatus)}
+              />
+            )}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {(thread.status === 'paused' || thread.status === 'stuck' || thread.status === 'delayed') && (
                 <button onClick={handleResume} className="btn-primary" style={{ flex: 1, minWidth: 130, height: 36, fontSize: 13, justifyContent: 'center', background: 'hsl(var(--status-active))' }}>
